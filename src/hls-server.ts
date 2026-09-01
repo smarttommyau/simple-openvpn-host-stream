@@ -242,6 +242,10 @@ if (!isMainThread && parentPort) {
       targetUrl = url;
       console.log('[hls-server] Starting stream with URL:', url);
       
+      // Initialize lastConnectionTime to current time when starting stream
+      // This prevents Infinity on first check since no previous connection exists yet
+      lastConnectionTime = Date.now();
+      
       // Send state change to main thread
       parentPort?.postMessage({
         type: 'state',

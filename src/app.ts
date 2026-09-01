@@ -3,7 +3,7 @@ import { Worker } from 'worker_threads';
 import { readFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import dotenv from 'dotenv';
-import { hlsConnectionTracker, getActiveDistinctConnectionsCount, getTotalActiveDistinctConnectionsCount, clearPathTracking, getLastAccessTime } from './middleware/connection-tracker';
+import { hlsConnectionTracker, getActiveDistinctConnectionsCount, getTotalActiveDistinctConnectionsCount, clearAllTracking, getLastAccessTime } from './middleware/connection-tracker';
 
 // =============================================================================
 // Configuration - Read ONLY from environment variables (NOT from .env file)
@@ -70,7 +70,7 @@ function createHlsWorker(): Worker {
     else if (msg.type === 'get-last-connection') {
       // Worker asks main thread for last connection time
       const now = Date.now();
-      const lastAccessTime = getLastAccessTime('/hls/');
+      const lastAccessTime = getLastAccessTime();
       const timeSinceLastConnection = lastAccessTime ? now - lastAccessTime : Infinity;
 
       console.log(`[app] Last connection check: ${timeSinceLastConnection > 60000 ? 'IDLE' : 'ACTIVE'} (${Math.round(timeSinceLastConnection/1000)}s since last connection)`);
@@ -112,17 +112,7 @@ const app = express();
 app.use(express.json()); // Parse JSON request bodies
 app.use(hlsConnectionTracker); // Track connections to /hls/ directory
 
-// Send last connection time to worker after each request
-const sendLastConnectionToWorker = (req: Request, res: Response, next: NextFunction) => {
-  const lastAccessTime = getLastAccessTime('/hls/');
-  if (lastAccessTime && hlsWorker) {
-    hlsWorker.postMessage({ type: 'set-last-connection', lastConnectionTime: lastAccessTime });
-  }
-  next();
-};
-
 app.use(express.static(join(__dirname, '..', 'public')));
-app.use(sendLastConnectionToWorker); // Send last connection time to worker after each request
 
 // =============================================================================
 // Health Check Endpoint - Reports current stream state via worker
@@ -136,8 +126,8 @@ app.get('/health', (req: Request, res: Response) => {
   }
   
   const timeoutSeconds = parseInt(process.env.TIMEOUT_SECONDS || '60', 10);
-  const distinctConnections = getActiveDistinctConnectionsCount('/hls/');
-  const lastAccessTime = getLastAccessTime('/hls/') ? new Date(getLastAccessTime('/hls/')!).toISOString() : null;
+  const distinctConnections = getActiveDistinctConnectionsCount();
+  const lastAccessTime = getLastAccessTime() ? new Date(getLastAccessTime()!).toISOString() : null;
   
   res.json({
     status: state,
@@ -290,8 +280,8 @@ app.post('/stop-stream', (req: Request, res: Response) => {
 app.get('/get-viewers', (req: Request, res: Response) => {
   console.log('[app] [getViewers] Received request for /get-viewers');
   
-  const distinctConnections = getActiveDistinctConnectionsCount('/hls/');
-  const lastAccessTime = getLastAccessTime('/hls/') ? new Date(getLastAccessTime('/hls/')!).toISOString() : null;
+  const distinctConnections = getActiveDistinctConnectionsCount();
+  const lastAccessTime = getLastAccessTime() ? new Date(getLastAccessTime()!).toISOString() : null;
   
   res.json({
     viewers: distinctConnections,
