@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stream Proxy - Live Stream Player</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background-color: #1a1a2e;
+      color: #eee;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      width: 100%;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 2rem;
+      color: #fff;
+      margin-bottom: 10px;
+    }
+
+    .status-bar {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 15px;
+      padding: 15px;
+      background-color: #16213e;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 1rem;
+    }
+
+    .status-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-color: #ff6b6b;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .status-dot.connected {
+      background-color: #4ecdc4;
+      animation: none;
+    }
+
+    .status-dot.error {
+      background-color: #ff6b6b;
+      animation: shake 0.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-3px); }
+      75% { transform: translateX(3px); }
+    }
+
+    .video-container {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16/9;
+      background-color: #0f0f23;
+      border-radius: 15px;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .loading-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: rgba(15, 15, 35, 0.9);
+      z-index: 10;
+    }
+
+    .loading-spinner {
+      width: 60px;
+      height: 60px;
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #4ecdc4;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .error-message {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      padding: 20px;
+      background-color: rgba(15, 15, 35, 0.95);
+      border-radius: 10px;
+      z-index: 10;
+    }
+
+    .error-message h3 {
+      color: #ff6b6b;
+      margin-bottom: 10px;
+    }
+
+    .error-message p {
+      color: #aaa;
+      font-size: 0.9rem;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      margin-top: 20px;
+    }
+
+    .control-btn {
+      width: 56px;
+      height: 56px;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .control-btn:hover {
+      transform: scale(1.1);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    }
+
+    .control-btn:active {
+      transform: scale(0.95);
+    }
+
+    .btn-fullscreen {
+      background-color: #2a2a4e;
+      color: #4ecdc4;
+    }
+
+    .btn-fullscreen:hover {
+      background-color: #3a3a5e;
+    }
+
+    .btn-sound {
+      background-color: #2a2a4e;
+      color: #ff6b6b;
+    }
+
+    .btn-sound:hover {
+      background-color: #3a3a5e;
+    }
+
+    .btn-connect {
+      background-color: #4ecdc4;
+      color: #1a1a2e;
+    }
+
+    .btn-connect:hover:not(:disabled) {
+      background-color: #45b7af;
+      transform: translateY(-2px);
+    }
+
+    .btn-disconnect {
+      background-color: #ff6b6b;
+      color: white;
+    }
+
+    .btn-disconnect:hover:not(:disabled) {
+      background-color: #ee5a52;
+      transform: translateY(-2px);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .info-panel {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #16213e;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      color: #aaa;
+    }
+
+    .info-panel p {
+      margin: 5px 0;
+    }
+
+    .info-label {
+      color: #4ecdc4;
+      font-weight: 600;
+    }
+
+    /* Sync Toggle Styles */
+    .sync-toggle-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 15px;
+      padding: 12px;
+      background-color: #16213e;
+      border-radius: 10px;
+    }
+
+    .sync-toggle-label {
+      font-size: 0.9rem;
+      color: #aaa;
+    }
+
+    .sync-toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 52px;
+      height: 28px;
+    }
+
+    .sync-toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 34px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 22px;
+      width: 22px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: #4ecdc4;
+    }
+
+    input:focus + .slider {
+      box-shadow: 0 0 1px #4ecdc4;
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(22px);
+    }
+
+    footer {
+      margin-top: auto;
+      padding: 20px;
+      text-align: center;
+      color: #666;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📺 Live Stream Player</h1>
+      <p style="color: #888;">Powered by OpenVPN + FFmpeg HLS Streaming Proxy</p>
+    </header>
+
+    <div class="status-bar">
+      <div class="status-indicator" id="statusIndicator">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Disconnected</span>
+      </div>
+      <div id="connectionCount" style="color: #888;">Connections: 0</div>
+    </div>
+
+    <div class="video-container">
+      <video id="videoPlayer" autoplay playsinline muted webkit-playsinline></video>
+      
+      <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <p style="margin-left: 15px; color: #888;">Connecting to stream...</p>
+      </div>
+
+      <div class="error-message" id="errorMessage" style="display: none;">
+        <h3>⚠️ Stream Error</h3>
+        <p id="errorText">Stream is not available.</p>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="control-btn btn-fullscreen" id="fullscreenBtn" title="Full Screen" onclick="toggleFullscreen()">⛶</button>
+      <button class="control-btn btn-sound" id="soundBtn" title="Sound" onclick="toggleSound()">🔊</button>
+      <button class="btn-connect" id="connectBtn" onclick="connectToStream()">Connect to Stream</button>
+      <button class="btn-disconnect" id="disconnectBtn" onclick="disconnectFromStream()" disabled>Disconnect</button>
+    </div>
+
+    <div class="info-panel">
+      <p><span class="info-label">Status:</span> <span id="infoStatus">Disconnected</span></p>
+      <p><span class="info-label">Health Check:</span> <a href="/health" target="_blank" style="color: #4ecdc4;">/health</a></p>
+      <p><span class="info-label">Start Stream:</span> <code>POST /start-stream</code></p>
+      <p><span class="info-label">Stream Endpoint:</span> <code>/hls/stream.m3u8</code></p>
+    </div>
+
+    <div class="sync-toggle-container">
+      <span class="sync-toggle-label" id="syncToggleLabel">Sync to Live: OFF</span>
+      <label class="sync-toggle-switch">
+        <input type="checkbox" id="syncToggle" onchange="toggleSync()">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <footer>
+      <p>Simple OpenVPN Stream Proxy - Connect to any streaming site via OpenVPN tunnel</p>
+    </footer>
+  </div>
+
+  <!-- Load hls.js for HLS stream support -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.6/dist/hls.min.js"></script>
+
+  <script>
+    let videoElement = document.getElementById('videoPlayer');
+    let loadingOverlay = document.getElementById('loadingOverlay');
+    let errorMessage = document.getElementById('errorMessage');
+    let statusDot = document.getElementById('statusDot');
+    let statusText = document.getElementById('statusText');
+    let connectBtn = document.getElementById('connectBtn');
+    let disconnectBtn = document.getElementById('disconnectBtn');
+    let connectionCountEl = document.getElementById('connectionCount');
+    let infoStatus = document.getElementById('infoStatus');
+    let syncToggle = document.getElementById('syncToggle');
+    let syncToggleLabel = document.getElementById('syncToggleLabel');
+
+    // hls.js player instance
+    let hls = null;
+
+    // Sync toggle state (default: OFF)
+    let isSyncEnabled = false;
+
+    // Sound toggle state (default: muted for autoplay policy)
+    let isSoundEnabled = false;
+
+    // Update status indicator
+    function updateStatus(status, message) {
+      statusDot.className = 'status-dot';
+      
+      switch (status) {
+        case 'connecting':
+          statusDot.classList.add('connected');
+          statusText.textContent = message;
+          break;
+        case 'streaming':
+          statusDot.classList.add('connected');
+          statusText.textContent = 'Streaming ✓';
+          break;
+        case 'error':
+          statusDot.classList.add('error');
+          statusText.textContent = 'Error ✗';
+          break;
+        case 'disconnected':
+          statusDot.classList.remove('connected', 'error');
+          statusText.textContent = 'Disconnected';
+          break;
+      }
+
+      infoStatus.textContent = message;
+    }
+
+    // Connect to stream using hls.js for HLS playback
+    async function connectToStream() {
+      try {
+        console.log('[frontend] [connectToStream] Starting connection...');
+        updateStatus('connecting', 'Connecting to stream...');
+        connectBtn.disabled = true;
+        disconnectBtn.disabled = false;
+        loadingOverlay.style.display = 'flex';
+        errorMessage.style.display = 'none';
+
+        // First, POST to /start-stream to start the stream in background
+        console.log('[frontend] [connectToStream] Starting stream via POST /start-stream...');
+        
+        const startResponse = await fetch('/start-stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!startResponse.ok) {
+          throw new Error(`Failed to start stream: ${startResponse.status}`);
+        }
+
+        const startData = await startResponse.json();
+        console.log('[frontend] [connectToStream] Stream starting:', startData.message);
+
+        // Poll /stream-ready endpoint to wait for stream to be ready
+        let pollCount = 0;
+        const maxPolls = 30; // Max 60 seconds (30 * 2s)
+        const pollInterval = 2000; // 2 second intervals
+        
+        const pollStreamReady = async () => {
+          try {
+            const response = await fetch('/stream-ready');
+            
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            
+            if (data.ready) {
+              console.log('[frontend] [connectToStream] Stream is ready! Starting playback...');
+              startPlayback();
+            } else {
+              pollCount++;
+              console.log(`[frontend] [connectToStream] Stream not ready yet (${pollCount}/${maxPolls}). Retrying in ${pollInterval/1000}s...`);
+              
+              if (pollCount < maxPolls) {
+                setTimeout(pollStreamReady, pollInterval);
+              } else {
+                throw new Error('Stream readiness timeout after ' + maxPolls + ' attempts');
+              }
+            }
+          } catch (error) {
+            console.error('[frontend] [connectToStream] Poll error:', error.message);
+            
+            if (pollCount < maxPolls) {
+              pollCount++;
+              setTimeout(pollStreamReady, pollInterval);
+            } else {
+              throw error;
+            }
+          }
+        };
+
+        // Start polling for stream readiness
+        pollStreamReady();
+
+      } catch (error) {
+        console.error('[frontend] [connectToStream] Connection error:', error);
+        loadingOverlay.style.display = 'none';
+        errorMessage.style.display = 'block';
+        errorMessage.querySelector('p').textContent = error.message || 'Failed to connect to stream.';
+        updateStatus('error', 'Error');
+      }
+    }
+
+    // Start playback after stream is ready
+    function startPlayback() {
+      console.log('[frontend] [startPlayback] Creating hls.js player...');
+      
+      if (typeof Hls !== 'undefined') {
+        const hlsConfig = {
+          debug: true,
+          enableWorker: true,
+          lowLatencyMode: true,
+          backBufferLength: 90 // 90 seconds back buffer
+        };
+
+        // Apply sync settings only if toggle is enabled (default: OFF)
+        if (isSyncEnabled) {
+          hlsConfig.liveSyncDurationCount = 2; // Stay close to live edge (about 5-10 seconds)
+          hlsConfig.maxLiveSyncPlaybackRate = 1.5; // Speed up if lagging behind
+          console.log('[frontend] [startPlayback] Sync mode enabled');
+        } else {
+          console.log('[frontend] [startPlayback] Sync mode disabled (live playback without sync)');
+        }
+
+        hls = new Hls(hlsConfig);
+        hls.loadSource('http://localhost:8080/hls/stream.m3u8');
+        hls.attachMedia(videoElement);
+
+        // Handle loading events
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          console.log('[frontend] [startPlayback] Manifest parsed, starting playback...');
+          
+          // Set muted based on sound toggle state (default: muted for autoplay policy)
+          if (!isSoundEnabled) {
+            videoElement.muted = true;
+          }
+
+          videoElement.play().then(() => {
+            console.log('[frontend] [startPlayback] Playback started');
+            loadingOverlay.style.display = 'none';
+            updateStatus('streaming', 'Streaming ✓');
+            infoStatus.textContent = 'Live';
+          }).catch(err => {
+            console.error('[frontend] [startPlayback] Play error:', err);
+            handleError('Failed to start playback');
+          });
+        });
+
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          console.error('[frontend] [startPlayback] HLS error:', data.type, data.details);
+          
+          // Handle fatal errors
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.log('[frontend] [startPlayback] Network error. Trying to recover...');
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                console.log('[frontend] [startPlayback] Media error. Trying to recover...');
+                hls.recoverMediaError();
+                break;
+              default:
+                handleError('HLS playback failed: ' + data.details);
+                break;
+            }
+          } else {
+            handleError('HLS error: ' + data.details);
+          }
+        });
+
+        // Handle live sync events
+        hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+          console.log('[frontend] [startPlayback] Level switched to:', data.level);
+        });
+
+        hls.on(Hls.Events.FRAG_BUFFERED, (event, data) => {
+          if (hls.levels.length > 0 && hls.currentLevel !== undefined) {
+            const levelDuration = hls.levels[hls.currentLevel].duration;
+            console.log('[frontend] [startPlayback] Fragment buffered:', data.id);
+          }
+        });
+
+      } else {
+        throw new Error('hls.js library not loaded');
+      }
+    }
+
+    // Disconnect from stream
+    function disconnectFromStream() {
+      if (hls) {
+        hls.destroy();
+        hls = null;
+      }
+      
+      videoElement.pause();
+      videoElement.src = '';
+      loadingOverlay.style.display = 'none';
+      errorMessage.style.display = 'none';
+      updateStatus('disconnected', 'Disconnected');
+      infoStatus.textContent = 'Disconnected';
+      connectBtn.disabled = false;
+      disconnectBtn.disabled = true;
+    }
+
+    // Handle errors
+    function handleError(message) {
+      console.error('[frontend] [handleError]', message);
+      loadingOverlay.style.display = 'none';
+      errorMessage.style.display = 'block';
+      errorMessage.querySelector('p').textContent = message;
+      updateStatus('error', 'Error');
+    }
+
+    // Handle video waiting for data
+    videoElement.onwaiting = function() {
+      console.log('[frontend] [video] Video is waiting for data...');
+    };
+
+    // Handle video seeking
+    videoElement.onseeking = function() {
+      console.log('[frontend] [video] Video seeking...');
+    };
+
+    // Handle video seeked
+    videoElement.onseeked = function() {
+      console.log('[frontend] [video] Video seek completed');
+    };
+
+    // Handle video canplay
+    videoElement.oncanplay = function() {
+      console.log('[frontend] [video] Video can play');
+    };
+
+    // Handle video playing
+    videoElement.onplaying = function() {
+      console.log('[frontend] [video] Video is playing');
+    };
+
+    // Handle video error
+    videoElement.onerror = function() {
+      console.error('[frontend] [video] Video error occurred');
+      if (!hls) {
+        handleError('Stream playback failed. Please try reconnecting.');
+      }
+    };
+
+    // Fullscreen change event listener
+    document.addEventListener('fullscreenchange', () => {
+      const fullscreenBtn = document.getElementById('fullscreenBtn');
+      if (document.fullscreenElement) {
+        fullscreenBtn.textContent = '⬡';
+      } else {
+        fullscreenBtn.textContent = '⛶';
+      }
+    });
+
+    // Toggle sync mode
+    function toggleSync() {
+      isSyncEnabled = syncToggle.checked;
+      
+      if (isSyncEnabled) {
+        syncToggleLabel.textContent = 'Sync to Live: ON';
+        console.log('[frontend] [toggleSync] Sync enabled');
+      } else {
+        syncToggleLabel.textContent = 'Sync to Live: OFF';
+        console.log('[frontend] [toggleSync] Sync disabled');
+      }
+    }
+
+    // Toggle fullscreen mode
+    function toggleFullscreen() {
+      const videoContainer = document.querySelector('.video-container');
+      
+      if (!document.fullscreenElement) {
+        videoContainer.requestFullscreen().then(() => {
+          console.log('[frontend] [toggleFullscreen] Entered fullscreen');
+        }).catch(err => {
+          console.error('[frontend] [toggleFullscreen] Fullscreen error:', err);
+        });
+      } else {
+        document.exitFullscreen().then(() => {
+          console.log('[frontend] [toggleFullscreen] Exited fullscreen');
+        }).catch(err => {
+          console.error('[frontend] [toggleFullscreen] Exit fullscreen error:', err);
+        });
+      }
+    }
+
+    // Toggle sound on/off
+    function toggleSound() {
+      isSoundEnabled = !isSoundEnabled;
+      
+      const soundBtn = document.getElementById('soundBtn');
+      if (isSoundEnabled) {
+        soundBtn.textContent = '🔊';
+        videoElement.muted = false;
+        console.log('[frontend] [toggleSound] Sound enabled');
+      } else {
+        soundBtn.textContent = '🔇';
+        videoElement.muted = true;
+        console.log('[frontend] [toggleSound] Sound disabled');
+      }
+    }
+
+    // Initial status
+    updateStatus('disconnected', 'Disconnected');
+  </script>
+</body>
+</html>

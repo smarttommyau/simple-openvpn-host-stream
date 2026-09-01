@@ -1,0 +1,51 @@
+version: '3.4'
+
+services:
+  openvpn:
+    image: dperson/openvpn-client
+    cap_add:
+      - net_admin
+    environment:
+      TZ: 'Asia/Hong_Kong'
+    networks:
+      - vpn-network
+    read_only: true
+    tmpfs:
+      - /run
+      - /tmp
+    restart: unless-stopped
+    security_opt:
+      - label:disable
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./openvpn-config:/vpn
+      - /dev/net:/dev/net:z
+    ports:
+      - "${PORT:-8080}:8080"
+
+  nodejs-stream-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.nodejs
+    environment:
+      OPENVPN_HOST: 'openvpn'
+      PORT: '${PORT:-8080}'
+      TZ: 'Asia/Hong_Kong'
+    network_mode: "service:openvpn"
+    volumes:
+      - ./public:/app/public  # Mount public as read-only for HLS segments
+      - hls-tmp:/app/public/hls  # Mount tmp volume for HLS segments
+      # Mount .env file for STREAM_URL at runtime
+      - .env:/app/.env:ro
+    depends_on:
+      - openvpn
+    restart: unless-stopped
+
+networks:
+  vpn-network:
+    driver: bridge
+
+volumes:
+  hls-tmp:
+    driver: local

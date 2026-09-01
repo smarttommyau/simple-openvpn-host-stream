@@ -1,0 +1,30 @@
+{
+  "name": "simple-openvpn-stream-proxy",
+  "version": "1.0.0",
+  "description": "OpenVPN-based stream proxy using dperson/openvpn-client and Node.js HTTP streaming server",
+  "main": "dist/app.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "dev": "ts-node src/app.ts"
+  },
+  "keywords": [
+    "openvpn",
+    "stream",
+    "proxy",
+    "ffmpeg",
+    "streamlink"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.10.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.0.0"
+  }
+}
