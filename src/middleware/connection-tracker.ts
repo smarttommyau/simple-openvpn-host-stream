@@ -20,6 +20,12 @@ const GLOBAL_CONNECTION_STATE: GlobalConnectionState = {
 
 // Middleware to track ALL connections (not path-specific)
 export function hlsConnectionTracker(req: Request, res: Response, next: NextFunction): void {
+  if(! (req.path.startsWith('/hls/') || req.path === '/hls') ) {
+    // Not an HLS request, skip tracking
+    return next();
+  }
+
+  // Determine client identifier (IP or X-Forwarded-For)
   const forwardedFor = req.headers['x-forwarded-for'] as string | string[];
   const clientId = req.ip || (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor) || 'unknown';
   const now = Date.now();
