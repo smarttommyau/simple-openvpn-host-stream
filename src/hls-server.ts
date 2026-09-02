@@ -2,6 +2,7 @@ import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 import { spawn } from 'child_process';
 import { readFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
+import { pipeline } from 'stream';
 
 // =============================================================================
 // HLS Server Worker - Handles all stream management (ffmpeg + streamlink)
@@ -13,6 +14,8 @@ const STATE_IDLE = 'idle';
 const STATE_STARTING = 'starting';
 const STATE_STARTED = 'started';
 const STATE_CHANGING_CHANNEL = 'changing-channel';
+
+let current_state: typeof STATE_IDLE | typeof STATE_STARTING | typeof STATE_STARTED | typeof STATE_CHANGING_CHANNEL = STATE_IDLE;
 
 interface StreamState {
   status: typeof STATE_IDLE | typeof STATE_STARTING | typeof STATE_STARTED | typeof STATE_CHANGING_CHANNEL;
@@ -59,6 +62,7 @@ async function startStreaming(): Promise<void> {
 
   console.log('[hls-server] Starting stream processes...');
   isStreaming = true;
+  current_state = STATE_STARTING;
 
   // 1. Spawn Streamlink (Outputs raw stream to stdout)
   const streamlink = spawn('streamlink', ['--stdout', targetUrl!, 'best']);
@@ -81,12 +85,20 @@ async function startStreaming(): Promise<void> {
   console.log('[hls-server] FFmpeg process started');
 
   // Track the primary streaming container process
-  streamlinkProcess = ffmpeg;
+  streamlinkProcess = streamlink;
   ffmpegProcess = ffmpeg;
 
   // 3. PIPE STREAMLINK TO FFMPEG
   console.log('[hls-server] Piping streamlink.stdout to ffmpeg.stdin');
-  streamlink.stdout.pipe(ffmpeg.stdin);
+  // streamlink.stdout.pipe(ffmpeg.stdin);
+
+  pipeline(streamlink.stdout, ffmpeg.stdin, (err) => {
+    if (err) {
+      console.error('[hls-server] Pipeline error:', err);
+    } else {
+      console.log('[hls-server] Pipeline ended successfully');
+    }
+  });
 
   // 4. CAPTURE CLEAN FFMPEG LOGS (Text only)
   ffmpeg.stderr.on('data', (chunk: Buffer) => {
@@ -111,6 +123,8 @@ async function startStreaming(): Promise<void> {
   ffmpeg.on('error', (err) => console.error('[ffmpeg error]', err.message));
 
   ffmpeg.on('close', async (code) => {
+    if(!isStreaming)
+      return;
     console.log(`[hls-server] FFmpeg process exited with code ${code}`);
     if (streamlinkProcess) {
       console.log('[hls-server] Sending SIGTERM to streamlink on ffmpeg close');
@@ -145,6 +159,7 @@ async function startStreaming(): Promise<void> {
   ffmpeg.on('close', () => {
     if (timeoutCheck) clearTimeout(timeoutCheck);
   });
+  current_state = STATE_STARTED;
 }
 
 // =============================================================================
@@ -156,14 +171,12 @@ async function endAllConnections(): Promise<void> {
   // Store references before killing - we need to wait for them to exit
   const streamlinkRef = streamlinkProcess;
   const ffmpegRef = ffmpegProcess;
+  isStreaming = false;
   
   
   // Wait for both processes to actually exit before clearing HLS directory
   const waitForExit = async (): Promise<void> => {
     return new Promise<void>((resolve, reject) => {
-      let streamlinkExited = false;
-      let ffmpegExited = false;
-      
       // Set timeout for process termination (10 seconds)
       const timeoutId = setTimeout(() => {
         console.error('[hls-server] Processes did not exit within timeout, forcing cleanup');
@@ -172,69 +185,22 @@ async function endAllConnections(): Promise<void> {
         resolve();
       }, 10000);
       
-      // Wait for streamlink to exit
-      if (streamlinkRef) {
-        streamlinkRef.on('exit', (code) => {
-          console.log(`[hls-server] Streamlink exited with code ${code}`);
-          streamlinkExited = true;
-          
-          // If both have exited, resolve the promise
-          if (streamlinkExited && ffmpegExited) {
+      if (streamlinkRef?.exitCode !== null && ffmpegRef?.exitCode !== null) {
+        clearTimeout(timeoutId);
+        resolve();
+      } else {
+        // Listen for exit events
+        const checkExit = () => {
+          if (streamlinkRef?.exitCode !== null && ffmpegRef?.exitCode !== null) {
             clearTimeout(timeoutId);
             resolve();
           }
-        });
-      } else {
-        // Already null, check if ffmpeg has exited
-        if (ffmpegRef) {
-          ffmpegRef.on('exit', (code) => {
-            console.log(`[hls-server] FFmpeg exited with code ${code}`);
-            ffmpegExited = true;
-            
-            // If both have exited, resolve the promise
-            if (streamlinkExited && ffmpegExited) {
-              clearTimeout(timeoutId);
-              resolve();
-            }
-          });
-        } else {
-          // Both already null, resolve immediately
-          clearTimeout(timeoutId);
-          resolve();
-        }
+        };
+        
+        streamlinkRef?.once('exit', checkExit);
+        ffmpegRef?.once('exit', checkExit);
       }
       
-      // Wait for ffmpeg to exit
-      if (ffmpegRef) {
-        ffmpegRef.on('exit', (code) => {
-          console.log(`[hls-server] FFmpeg exited with code ${code}`);
-          ffmpegExited = true;
-          
-          // If both have exited, resolve the promise
-          if (streamlinkExited && ffmpegExited) {
-            clearTimeout(timeoutId);
-            resolve();
-          }
-        });
-      } else {
-        // Already null, check if streamlink has exited
-        if (streamlinkRef) {
-          streamlinkRef.on('exit', (code) => {
-            console.log(`[hls-server] Streamlink exited with code ${code}`);
-            streamlinkExited = true;
-            
-            // If both have exited, resolve the promise
-            if (streamlinkExited && ffmpegExited) {
-              clearTimeout(timeoutId);
-              resolve();
-            }
-          });
-        } else {
-          // Both already null, resolve immediately
-          clearTimeout(timeoutId);
-          resolve();
-        }
-      }
     });
   };
   
@@ -251,7 +217,7 @@ async function endAllConnections(): Promise<void> {
   }
 
   await wt;
-
+  console.log('[hls-server] All processes exited, cleaning up HLS directory...');
   // Clear references
   streamlinkProcess = null;
   ffmpegProcess = null;
@@ -264,8 +230,8 @@ async function endAllConnections(): Promise<void> {
       console.error('[hls-server] Error deleting HLS file:', err);
     }
   }
+  console.log('[hls-server] HLS directory cleaned up');
   
-  isStreaming = false;
 }
 
 // =============================================================================
@@ -297,6 +263,10 @@ if (!isMainThread && parentPort) {
     console.log('[hls-server] Received message from main thread:', msg);
     
     if (msg.type === 'start') {
+      if(current_state !== STATE_IDLE) {
+        console.log('[hls-server] Stream already active or starting, ignoring start request');
+        return;
+      }
       const url = msg.url || workerData.url;
       if (!url) {
         parentPort?.postMessage({ type: 'error', payload: { message: 'No URL provided' } });
@@ -321,6 +291,8 @@ if (!isMainThread && parentPort) {
     else if (msg.type === 'stop') {
       console.log('[hls-server] Stopping stream');
       await endAllConnections();
+
+      current_state = STATE_IDLE;
       
       // Send state change to main thread
       parentPort?.postMessage({
@@ -337,14 +309,15 @@ if (!isMainThread && parentPort) {
     else if (msg.type === 'change-channel') {
       console.log('[hls-server] Received change-channel request. Killing current stream and restarting with new URL...');
       
-      // Kill current stream processes
-      await endAllConnections();
       
       // Send state change to main thread indicating channel change in progress
       parentPort?.postMessage({
         type: 'state',
         payload: { status: STATE_CHANGING_CHANNEL }
       });
+      
+      // Kill current stream processes
+      await endAllConnections();
       
       // Use new URL from message if provided, otherwise use workerData.url
       const newUrl = msg.url || workerData.url;
@@ -370,7 +343,7 @@ if (!isMainThread && parentPort) {
     }
     else if (msg.type === 'status') {
       const state: StreamState = {
-        status: isStreaming ? STATE_STARTED : STATE_IDLE
+        status: current_state
       };
       parentPort?.postMessage({
         type: 'state',
