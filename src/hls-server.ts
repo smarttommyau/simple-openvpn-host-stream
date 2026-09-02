@@ -123,7 +123,7 @@ async function startStreaming(): Promise<void> {
   ffmpeg.on('error', (err) => console.error('[ffmpeg error]', err.message));
 
   ffmpeg.on('close', async (code) => {
-    if(!isStreaming)
+    if(!isStreaming || isEndingConnections)
       return;
     console.log(`[hls-server] FFmpeg process exited with code ${code}`);
     if (streamlinkProcess) {
@@ -165,7 +165,14 @@ async function startStreaming(): Promise<void> {
 // =============================================================================
 // End All Connections and Stop Streaming
 // =============================================================================
+let isEndingConnections = false;
+
 async function endAllConnections(): Promise<void> {
+  if(isEndingConnections) {
+    console.log('[hls-server] Already ending connections, skipping duplicate call');
+    return;
+  }
+  isEndingConnections = true;
   console.log('[hls-server] Ending all connections...');
   
   // Store references before killing - we need to wait for them to exit
@@ -231,6 +238,7 @@ async function endAllConnections(): Promise<void> {
     }
   }
   console.log('[hls-server] HLS directory cleaned up');
+  isEndingConnections = false;
   
 }
 
