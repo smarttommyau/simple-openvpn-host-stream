@@ -114,6 +114,13 @@ app.use(hlsConnectionTracker); // Track connections to /hls/ directory
 
 app.use(express.static(join(__dirname, '..', 'public')));
 
+
+app.get('/server-time', (req: Request, res: Response) => {
+  const serverTime = new Date().toISOString();
+  res.json({ serverTime });
+});
+
+
 // =============================================================================
 // Health Check Endpoint - Reports current stream state via worker
 // =============================================================================

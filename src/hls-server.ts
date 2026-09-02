@@ -77,7 +77,7 @@ async function startStreaming(): Promise<void> {
     '-f', 'hls',                 // Output HLS format (HTTP Live Streaming)
     '-hls_time', '3',            // Segment duration in seconds
     '-hls_list_size', '5',       // Keep only last 5 segments in playlist
-    '-hls_flags', 'delete_segments', // Automatically delete old segments
+    '-hls_flags', 'delete_segments+program_date_time', // Automatically delete old segments + add program date time
     join(HLS_DIR, 'stream.m3u8') // Output to playlist file in hls/ directory
   ]);
 
