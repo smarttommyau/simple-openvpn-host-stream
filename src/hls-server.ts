@@ -157,15 +157,6 @@ async function endAllConnections(): Promise<void> {
   const streamlinkRef = streamlinkProcess;
   const ffmpegRef = ffmpegProcess;
   
-  // Stop both processes with SIGTERM
-  if (streamlinkRef) {
-    console.log('[hls-server] Sending SIGTERM to streamlink');
-    streamlinkRef.kill('SIGTERM');
-  }
-  if (ffmpegRef) {
-    console.log('[hls-server] Sending SIGTERM to ffmpeg');
-    ffmpegRef.kill('SIGTERM');
-  }
   
   // Wait for both processes to actually exit before clearing HLS directory
   const waitForExit = async (): Promise<void> => {
@@ -176,6 +167,8 @@ async function endAllConnections(): Promise<void> {
       // Set timeout for process termination (10 seconds)
       const timeoutId = setTimeout(() => {
         console.error('[hls-server] Processes did not exit within timeout, forcing cleanup');
+        streamlinkRef?.kill('SIGKILL');
+        ffmpegRef?.kill('SIGKILL');
         resolve();
       }, 10000);
       
@@ -246,7 +239,22 @@ async function endAllConnections(): Promise<void> {
   };
   
   // Clear HLS directory after processes have exited
-  await waitForExit();
+  const wt =  waitForExit();
+  // Stop both processes with SIGTERM
+  if (streamlinkRef) {
+    console.log('[hls-server] Sending SIGTERM to streamlink');
+    streamlinkRef.kill('SIGTERM');
+  }
+  if (ffmpegRef) {
+    console.log('[hls-server] Sending SIGTERM to ffmpeg');
+    ffmpegRef.kill('SIGTERM');
+  }
+
+  await wt;
+
+  // Clear references
+  streamlinkProcess = null;
+  ffmpegProcess = null;
   
   const files = readdirSync(HLS_DIR);
   for (const file of files) {
