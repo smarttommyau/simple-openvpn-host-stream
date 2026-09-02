@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta content="width=device-width,initial-scale=1" name="viewport">
+  <title>Abema TV EPG - Channel Switcher</title>
+  <link href="https://dbghelp.github.io/xml-epg.css" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      display: flex;
+      height: 100vh;
+      background-color: #282c34;
+    }
+
+    #playlist {
+      width: 350px;
+      background-color: #282c34;
+      color: #fff;
+      overflow-y: auto;
+      border-right: 1px solid #444;
+      padding: 20px;
+      box-shadow: 2px 0 5px rgb(0 0 0 / .2);
+      display: flex;
+      flex-direction: column;
+    }
+
+    #search-input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 10px;
+      border: 1px solid #444;
+      border-radius: 5px;
+      background-color: #3c4043;
+      color: #fff;
+      font-size: 1em;
+      box-sizing: border-box;
+    }
+
+    #epg-button {
+      display: none;
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 10px;
+      background-color: #61dafb;
+      color: #000;
+      border: none;
+      border-radius: 5px;
+      font-size: 1em;
+      cursor: pointer;
+      box-shadow: 0 4px 8px rgb(0 0 0 / .3);
+    }
+
+    #epg-button:hover {
+      background-color: #4fa3c4;
+    }
+
+    .fab-switch-btn {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background-color: #ff6b6b;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-size: 2em;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s ease, background-color 0.3s ease;
+    }
+
+    .fab-switch-btn:hover {
+      background-color: #ee5a52;
+      transform: scale(1.1);
+    }
+
+    .fab-switch-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    #epgContainerBtn {
+      background-color: #4fa3c4;
+    }
+
+    #epgContainerBtn:hover {
+      background-color: #61dafb;
+    }
+
+    .channel-switch-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      padding: 8px 12px;
+      background-color: #ff6b6b;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 0.9em;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      z-index: 10;
+    }
+
+    .channel-switch-btn:hover {
+      background-color: #ee5a52;
+    }
+
+    .channel-switch-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .channel-switch-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 15px 25px;
+      border-radius: 8px;
+      font-size: 1em;
+      z-index: 20;
+      display: none;
+    }
+
+    .channel-switch-overlay.show {
+      display: block;
+    }
+
+    #video-list img {
+      width: 50px;
+      height: 50px;
+      margin-right: 10px;
+      border-radius: 5px;
+      object-fit: contain;
+    }
+
+    .video-title {
+      font-size: 1em;
+    }
+
+    .active {
+      background-color: #4fa3c4;
+    }
+
+    #overlay {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      overflow-y: auto;
+      z-index: 2;
+      flex: 1;
+    }
+
+    #epg-container {
+      display: none;
+      z-index: 1000;
+      position: fixed;
+      width: 100%;
+      height: 100%;
+      overflow-y: auto;
+      background-color: #282c34;
+    }
+
+    .channel-info {
+      padding: 15px;
+      background-color: #282c34;
+      border-bottom: 1px solid #444;
+      color: #fff;
+    }
+
+    .channel-logo {
+      width: 60px;
+      height: 60px;
+      border-radius: 8px;
+      object-fit: contain;
+      background-color: #3c4043;
+    }
+
+    .channel-name {
+      font-size: 1.2em;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+
+    .channel-logo {
+      width: 60px;
+      height: 60px;
+      border-radius: 8px;
+      object-fit: contain;
+      background-color: #3c4043;
+    }
+
+    .epg-timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .program-row {
+      display: flex;
+      align-items: center;
+      padding: 5px;
+      font-size: 0.85em;
+      background-color: #3c4043;
+      border-radius: 3px;
+    }
+
+    .program-time {
+      width: 120px;
+      text-align: center;
+      font-size: 0.8em;
+      color: #aaa;
+    }
+
+    .program-info {
+      flex: 1;
+      padding-left: 10px;
+    }
+
+    .program-title {
+      font-weight: bold;
+    }
+
+    .program-desc {
+      font-size: 0.8em;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+  <!-- Channel List Panel -->
+  <div id="playlist">
+    <input type="text" id="search-input" placeholder="Search channels...">
+    <button id="epg-button" onclick="fetchEPG()">Load EPG</button>
+    
+    <div id="channel-list-container">
+      <h3 style="margin-bottom: 10px; color: #61dafb;">📺 Channels</h3>
+      <ul id="video-list"></ul>
+    </div>
+
+  </div>
+  <div id="overlay" style="display: flex; flex-direction: column; align-items: center;">
+    <!-- Channel info display (optional) -->
+    <div class="channel-info" id="channel-info" style="padding: 15px; background-color: #282c34; border-bottom: 1px solid #444; color: #fff; display: none;">
+      <div class="channel-logo" id="channel-logo" style="width: 60px; height: 60px; border-radius: 8px; object-fit: contain; background-color: #3c4043;"></div>
+      <div class="channel-name" id="channel-name" style="font-size: 1.2em; font-weight: bold; margin-bottom: 5px;"></div>
+    </div>
+  </div>
+  <div id="epg-container" style="display: none;"></div>
+
+  <!-- EPG Container View Button -->
+  <button class="fab-switch-btn" id="epgContainerBtn" onclick="showEPGContainer()" title="Show EPG Container (multiple channels)">📺</button>
+
+  <!-- FAB Button for switching channel -->
+  <button class="fab-switch-btn" id="fabSwitchBtn" onclick="confirmChannelSwitch()" title="Switch to selected channel">▶</button>
+
+  <!-- Load xml-epg library -->
+  <script src="https://dbghelp.github.io/xml-epg.js"></script>
+
+  <script>
+    // =============================================================================
+    // Channel Switcher - Abema TV EPG Integration
+    // =============================================================================
+
+    let epgButton = document.getElementById('epg-button');
+    let overlay = document.getElementById('overlay');
+    let epgContainer = document.getElementById('epg-container');
+    let epgContainerBtn = document.getElementById('epgContainerBtn');
+    let videoList = document.getElementById('video-list');
+    let searchInput = document.getElementById('search-input');
+    let channelListContainer = document.getElementById('channel-list-container');
+    let fabSwitchBtn = document.getElementById('fabSwitchBtn');
+
+    let xmlepg = new XMLEPG();
+    let channels = [];
+    let lastActiveChannel = null;
+    let currentChannelId = null;
+    let selectedChannelId = null; // Track selected channel (pending switch)
+
+    // =============================================================================
+    // Fetch EPG data from /channel-switch-info endpoint
+    // =============================================================================
+    async function fetchEPG() {
+      try {
+        console.log('[channelSwitcher] Fetching EPG from /channel-switch-info...');
+
+        const response = await fetch('/channel-switch-info');
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        
+        if (!data.ready) {
+          throw new Error(data.message || 'EPG not ready');
+        }
+
+        console.log('[channelSwitcher] EPG loaded from:', data.epgLink);
+        
+        // Load the EPG directly (no M3U8 playlist needed)
+        await loadEPG(data.epgLink);
+        
+      } catch (error) {
+        console.error('[channelSwitcher] Error fetching EPG:', error);
+      }
+    }
+
+    // =============================================================================
+    // Load EPG directly from the EPG link
+    // =============================================================================
+    async function loadEPG(epgUrl) {
+      if (epgUrl) {
+        try {
+          const urls = [epgUrl];
+          await xmlepg.load(urls);
+          await xmlepg.displayAllPrograms('epg-container', 'xmlepg');
+          
+          if (urls != null && urls.length != 0) {
+            epgButton.style.display = 'block';
+          }
+          
+          channels = xmlepg.channels;
+          updatePlaylist(channels);
+          searchInput.style.display = 'block';
+        } catch (error) {
+          console.error('Error fetching EPG:', error);
+        }
+      }
+    }
+
+    // =============================================================================
+    // Render channel list from xmlepg channels
+    // =============================================================================
+    function updatePlaylist(channels) {
+      videoList.innerHTML = '';
+      channels.forEach(channel => {
+        const listItem = document.createElement('li');
+        listItem.innerHTML = `
+          <img src="${channel.tvgLogo}" alt="${channel.channelName} logo">
+          <span class="video-title">${channel.channelName}</span>
+        `;
+        listItem.onclick = () => {
+          xmlepg.displayPrograms('overlay', channel.tvgId);
+          const parent = listItem.parentElement;
+          const children = parent.getElementsByTagName('li');
+          for (let i = 0; i < children.length; i++) {
+            children[i].classList.remove('active');
+          }
+          listItem.classList.add('active');
+          
+          // Track selected channel without switching - user must press FAB to switch
+          selectedChannelId = channel.tvgId;
+          
+          // Update FAB button state
+          if (fabSwitchBtn) {
+            fabSwitchBtn.disabled = false;
+            fabSwitchBtn.title = `Switch to ${channel.channelName}`;
+          }
+        };
+
+        listItem.onmouseover = () => {
+          xmlepg.displayPrograms('overlay', channel.tvgId);
+        };
+        videoList.appendChild(listItem);
+      });
+
+      // Select first channel by default - just track selection, don't switch
+      if (channels.length > 0) {
+        const firstChannel = channels[0];
+        selectedChannelId = firstChannel.tvgId;
+        
+        // Update FAB button state
+        if (fabSwitchBtn) {
+          fabSwitchBtn.disabled = false;
+          fabSwitchBtn.title = `Switch to ${firstChannel.channelName}`;
+        }
+      }
+    }
+
+    // =============================================================================
+    // Confirm channel switch when FAB is pressed
+    // =============================================================================
+    async function confirmChannelSwitch() {
+      if (!selectedChannelId) {
+        console.log('[channelSwitcher] No channel selected yet');
+        return;
+      }
+
+      console.log('[channelSwitcher] Switching to selected channel ID:', selectedChannelId);
+      
+      // Update active state in UI
+      const allItems = document.querySelectorAll('.channel-item');
+      allItems.forEach(item => item.classList.remove('active'));
+      const selectedItem = document.querySelector(`.channel-item[data-channel-id="${selectedChannelId}"]`);
+      if (selectedItem) {
+        selectedItem.classList.add('active');
+      }
+
+      // Update channel info display
+      const channelInfo = document.getElementById('channel-info');
+      const channelNameEl = document.getElementById('channel-name');
+      const channelLogoEl = document.getElementById('channel-logo');
+      
+      if (channelInfo && channelNameEl && channelLogoEl) {
+        // Find channel data from xmlepg channels
+        const channelData = channels.find(ch => ch.tvgId === selectedChannelId);
+        if (channelData) {
+          channelNameEl.textContent = channelData.channelName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+          channelLogoEl.src = channelData.tvgLogo || '';
+        }
+      }
+
+
+      // Start new stream using /change-set-channel endpoint with channel ID only
+      try {
+        console.log('[channelSwitcher] Sending channel change request to /change-set-channel...');
+        
+        const changeResponse = await fetch('/change-set-channel', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ channelId: selectedChannelId }) // Send only channel ID
+        });
+
+        if (!changeResponse.ok) {
+          throw new Error(`Failed to initiate channel change: ${changeResponse.status}`);
+        }
+
+        const changeData = await changeResponse.json();
+        console.log('[channelSwitcher] Channel change initiated:', changeData.message);
+
+        // Poll /stream-ready endpoint to wait for stream to be ready after channel change
+        let pollCount = 0;
+        const maxPolls = 30; // Max 60 seconds (30 * 2s)
+        const pollInterval = 2000; // 2 second intervals
+        
+        const pollStreamReady = async () => {
+          try {
+            const response = await fetch('/stream-ready');
+            
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            
+            if (data.ready) {
+              console.log('[channelSwitcher] Stream is ready after channel change!');
+            } else {
+              pollCount++;
+              console.log(`[channelSwitcher] Stream not ready yet (${pollCount}/${maxPolls}). Retrying in ${pollInterval/1000}s...`);
+              
+              if (pollCount < maxPolls) {
+                setTimeout(pollStreamReady, pollInterval);
+              } else {
+                throw new Error('Stream readiness timeout after ' + maxPolls + ' attempts');
+              }
+            }
+          } catch (error) {
+            console.error('[channelSwitcher] Poll error:', error.message);
+            
+            if (pollCount < maxPolls) {
+              pollCount++;
+              setTimeout(pollStreamReady, pollInterval);
+            } else {
+              throw error;
+            }
+          }
+        };
+
+        // Start polling for stream readiness
+        pollStreamReady();
+
+      } catch (error) {
+        console.error('[channelSwitcher] Channel switch error:', error);
+        
+        // Hide overlay on error
+        const overlay = document.getElementById('channelSwitchOverlay');
+        if (overlay) {
+          overlay.classList.remove('show');
+        }
+      }
+    }
+
+    // =============================================================================
+    // Switch to a different channel via /change-set-channel endpoint
+    // Sends only channel ID, backend appends stream URL
+    // =============================================================================
+    async function switchChannelViaEndpoint() {
+      console.log('[channelSwitcher] Opening channel switch dialog...');
+      
+      const overlay = document.getElementById('channelSwitchOverlay');
+      if (overlay) {
+        overlay.classList.add('show');
+        overlay.textContent = 'Select a channel from the list to change channels. The current stream will be replaced with the new one.';
+      }
+    }
+
+    // =============================================================================
+    // Show EPG Container View (multiple channels)
+    // =============================================================================
+    function showEPGContainer() {
+      console.log('[channelSwitcher] Showing EPG container view...');
+      
+      epgContainer.style.display = 'block';
+      xmlepg.timelineNeedleRender();
+      
+      // Hide overlay when switching to EPG container
+      overlay.style.display = 'none';
+    }
+
+    // =============================================================================
+    // Switch to a different channel using /change-set-channel endpoint
+    // Sends only channel ID (backend appends stream URL)
+    // =============================================================================
+    async function switchChannel(channelId) {
+      console.log('[channelSwitcher] Switching to channel ID:', channelId);
+      
+      // Update active state in UI
+      const allItems = document.querySelectorAll('.channel-item');
+      allItems.forEach(item => item.classList.remove('active'));
+      const selectedItem = document.querySelector(`.channel-item[data-channel-id="${channelId}"]`);
+      if (selectedItem) {
+        selectedItem.classList.add('active');
+      }
+
+      // Update channel info display
+      const channelInfo = document.getElementById('channel-info');
+      const channelNameEl = document.getElementById('channel-name');
+      const channelLogoEl = document.getElementById('channel-logo');
+      
+      if (channelInfo && channelNameEl && channelLogoEl) {
+        // Find channel data from xmlepg channels
+        const channelData = channels.find(ch => ch.tvgId === channelId);
+        if (channelData) {
+          channelNameEl.textContent = channelData.channelName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+          channelLogoEl.src = channelData.tvgLogo || '';
+        }
+      }
+
+
+      // Start new stream using /change-set-channel endpoint with channel ID only
+      try {
+        console.log('[channelSwitcher] Sending channel change request to /change-set-channel...');
+        
+        const changeResponse = await fetch('/change-set-channel', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ channelId }) // Send only channel ID
+        });
+
+        if (!changeResponse.ok) {
+          throw new Error(`Failed to initiate channel change: ${changeResponse.status}`);
+        }
+
+        const changeData = await changeResponse.json();
+        console.log('[channelSwitcher] Channel change initiated:', changeData.message);
+
+        // Poll /stream-ready endpoint to wait for stream to be ready after channel change
+        let pollCount = 0;
+        const maxPolls = 30; // Max 60 seconds (30 * 2s)
+        const pollInterval = 2000; // 2 second intervals
+        
+        const pollStreamReady = async () => {
+          try {
+            const response = await fetch('/stream-ready');
+            
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            
+            if (data.ready) {
+              console.log('[channelSwitcher] Stream is ready after channel change!');
+            } else {
+              pollCount++;
+              console.log(`[channelSwitcher] Stream not ready yet (${pollCount}/${maxPolls}). Retrying in ${pollInterval/1000}s...`);
+              
+              if (pollCount < maxPolls) {
+                setTimeout(pollStreamReady, pollInterval);
+              } else {
+                throw new Error('Stream readiness timeout after ' + maxPolls + ' attempts');
+              }
+            }
+          } catch (error) {
+            console.error('[channelSwitcher] Poll error:', error.message);
+            
+            if (pollCount < maxPolls) {
+              pollCount++;
+              setTimeout(pollStreamReady, pollInterval);
+            } else {
+              throw error;
+            }
+          }
+        };
+
+        // Start polling for stream readiness
+        pollStreamReady();
+
+      } catch (error) {
+        console.error('[channelSwitcher] Channel switch error:', error);
+        
+        // Hide overlay on error
+        const overlay = document.getElementById('channelSwitchOverlay');
+        if (overlay) {
+          overlay.classList.remove('show');
+        }
+      }
+    }
+
+    searchInput.addEventListener('input', (event) => {
+      const searchTerm = event.target.value;
+      filterPlaylist(searchTerm);
+    });
+
+    // =============================================================================
+    // Initialize
+    // =============================================================================
+    document.addEventListener('DOMContentLoaded', () => {
+      fetchEPG();
+      
+      // Show EPG container view on first channel click if no selection yet
+      const videoListItems = document.querySelectorAll('#video-list li');
+      videoListItems.forEach(item => {
+        item.onmouseover = () => {
+          xmlepg.displayPrograms('overlay', item.querySelector('img').alt);
+        };
+      });
+    });
+  </script>
+</body>
+</html>

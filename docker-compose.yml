@@ -2,7 +2,7 @@ version: '3.4'
 
 services:
   openvpn:
-    image: dperson/openvpn-client
+    image: ghcr.io/utkuozdemir/dperson-openvpn-client:2.6.11
     cap_add:
       - net_admin
     environment:

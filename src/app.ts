@@ -12,7 +12,7 @@ dotenv.config({ path: join(__dirname, '..', '.env') }); // Load .env file for lo
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
 // Read STREAM_URL ONLY from environment variable (NOT from .env file)
-const TARGET_URL = process.env.STREAM_URL || undefined;
+let TARGET_URL = process.env.STREAM_URL || undefined;
 if (!TARGET_URL) {
   console.error('[app] ERROR: STREAM_URL environment variable is not set!');
   console.error('[app] Please set STREAM_URL to the target streaming site URL.');
@@ -168,10 +168,16 @@ if (hlsWorker) {
       
       isStreaming = false;
     }
+    
+    // Handle channel change message from worker
+    if (msg.type === 'channel-change-complete') {
+      console.log(`[app] Channel change complete! Returning to streaming state...`);
+      isStreaming = true;
+    }
   };
   
-  (hlsWorker as any).on('message', workerMessageHandler);
-}
+    (hlsWorker as any).on('message', workerMessageHandler);
+  }
 
 // =============================================================================
 // Start Stream Endpoint - Starts streaming via worker message
@@ -199,6 +205,7 @@ app.post('/start-stream', (req: Request, res: Response) => {
 
 // =============================================================================
 // Stream Ready Check Endpoint - Polling endpoint for frontend
+// Returns the stream URL that should be used for playback
 // =============================================================================
 app.get('/stream-ready', (req: Request, res: Response) => {
   console.log('[app] [checkReady] Received request for /stream-ready');
@@ -222,8 +229,10 @@ app.get('/stream-ready', (req: Request, res: Response) => {
       const stats = require('fs').statSync(playlistPath);
       console.log('[app] [checkReady] Stream is ready! Playlist size:', stats.size, 'bytes');
       
+      // Return the stream URL that should be used for playback
       res.json({
         ready: true,
+        streamUrl: `/hls/stream.m3u8`,
         timestamp: new Date().toISOString()
       });
     } else {
@@ -270,6 +279,47 @@ app.post('/stop-stream', (req: Request, res: Response) => {
   res.json({
     stopped: true,
     message: 'Stream stopped successfully',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// =============================================================================
+// Change Set Channel Endpoint - For channel-switch to send requests
+// Accepts channel ID only, backend appends stream URL
+// =============================================================================
+app.post('/change-set-channel', (req: Request, res: Response) => {
+  console.log('[app] [changeSetChannel] Received POST request to /change-set-channel');
+  
+  const channelId = req.body.channelId;
+  
+  if (!channelId) {
+    res.status(400).json({
+      error: 'No channel ID provided',
+      message: 'Please provide a channel ID in the request body.',
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+  
+  console.log('[app] [changeSetChannel] Channel ID received:', channelId);
+  TARGET_URL = `${process.env.EPG_BASE_STREAM_URL || ''}${channelId}`;
+  // Send change-channel message to worker with channel ID
+  if (hlsWorker) {
+
+    hlsWorker.postMessage({ type: 'change-channel', url: TARGET_URL });
+  } else {
+    res.status(503).json({
+      error: 'No worker running',
+      message: 'No stream active. Please POST to /start-stream first.',
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+  
+  res.json({
+    ready: true,
+    message: 'Channel change initiated. Polling /stream-ready for completion.',
+    channelId,
     timestamp: new Date().toISOString()
   });
 });
@@ -331,6 +381,61 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   } else {
     console.error('[app] WARNING: STREAM_URL not set in environment! Stream will not work.');
     console.error('[app] Set STREAM_URL environment variable before starting the server.');
+  }
+});
+
+app.get('/channel-switch-info', async (req: Request, res: Response) => {
+  console.log('[app] [channelSwitchInfo] Received GET request for /channel-switch-info');
+  
+  // Read EPG configuration from environment variables
+  const ENABLE_EPG = process.env.ENABLE_EPG === 'true';
+  const EPG_LINK = process.env.EPG_LINK || '';
+  
+  if (!ENABLE_EPG) {
+    res.status(503).json({
+      ready: false,
+      message: 'EPG is disabled. Set ENABLE_EPG=true in environment variables.',
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+  
+  if (!EPG_LINK) {
+    res.status(500).json({
+      ready: false,
+      message: 'EPG_LINK is not configured. Set EPG_LINK in environment variables.',
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+  
+  try {
+    // Fetch the EPG XML from the configured link
+    console.log(`[app] [channelSwitchInfo] Fetching EPG from: ${EPG_LINK}`);
+    
+    const epgResponse = await fetch(EPG_LINK);
+    
+    if (!epgResponse.ok) {
+      throw new Error(`Failed to fetch EPG: HTTP ${epgResponse.status} ${epgResponse.statusText}`);
+    }
+    
+    const epgXml = await epgResponse.text();
+    
+    // Return only the EPG link - no base stream URL needed (load EPG directly)
+    res.json({
+      ready: true,
+      epgLink: EPG_LINK,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('[app] [channelSwitchInfo] Error fetching EPG:', error);
+    
+    res.status(503).json({
+      ready: false,
+      message: `Failed to fetch EPG: ${error instanceof Error ? error.message : String(error)}`,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
