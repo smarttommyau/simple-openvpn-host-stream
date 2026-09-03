@@ -25,6 +25,13 @@ if (!TARGET_URL) {
 let isStreaming = false;
 const HLS_DIR = join(__dirname, '..', 'public', 'hls');
 
+const STATE_IDLE = 'idle';
+const STATE_STARTING = 'starting';
+const STATE_STARTED = 'started';
+const STATE_CHANGING_CHANNEL = 'changing-channel';
+
+let hlsState: typeof STATE_IDLE | typeof STATE_STARTING | typeof STATE_STARTED | typeof STATE_CHANGING_CHANNEL = STATE_IDLE;
+
 // Ensure HLS directory exists and is clean
 if (!existsSync(HLS_DIR)) {
   // Create parent directories first, then hls subdirectory
@@ -66,6 +73,7 @@ function createHlsWorker(): Worker {
       } else if (state.status === 'idle') {
         isStreaming = false;
       }
+      hlsState = state.status;
     }
     else if (msg.type === 'get-last-connection') {
       // Worker asks main thread for last connection time
@@ -121,6 +129,14 @@ app.get('/server-time', (req: Request, res: Response) => {
 });
 
 
+app.get('/stream-info', (req: Request, res: Response) => {
+  const distinctConnections = getActiveDistinctConnectionsCount();
+  const hls_state = hlsState;
+  const currentLink = TARGET_URL || 'Not set';
+  res.json({ distinctConnections, hls_state, currentLink });
+});
+
+
 // =============================================================================
 // Health Check Endpoint - Reports current stream state via worker
 // =============================================================================
@@ -143,48 +159,6 @@ app.get('/health', (req: Request, res: Response) => {
     lastAccessTime: lastAccessTime
   });
 });
-
-// =============================================================================
-// Handle idle-detected message from hls-server worker
-// =============================================================================
-if (hlsWorker) {
-  const workerMessageHandler = (msg: any) => {
-    console.log('[app] Received message from HLS worker:', msg);
-    
-    if (msg.type === 'state') {
-      const state = msg.payload;
-      console.log(`[app] HLS Worker state changed to: ${state.status}`);
-      
-      // Update health endpoint state based on worker state
-      if (state.status === 'started') {
-        isStreaming = true;
-      } else if (state.status === 'idle') {
-        isStreaming = false;
-      }
-    }
-    
-    // Handle idle-detected message from timeout check
-    if (msg.type === 'idle-detected') {
-      console.log(`[app] Idle detected! Stopping stream...`);
-      
-      // Kill worker - hls-server handles cleanup internally
-      if (hlsWorker) {
-        hlsWorker.terminate();
-        hlsWorker = null;
-      }
-      
-      isStreaming = false;
-    }
-    
-    // Handle channel change message from worker
-    if (msg.type === 'channel-change-complete') {
-      console.log(`[app] Channel change complete! Returning to streaming state...`);
-      isStreaming = true;
-    }
-  };
-  
-    (hlsWorker as any).on('message', workerMessageHandler);
-  }
 
 // =============================================================================
 // Start Stream Endpoint - Starts streaming via worker message

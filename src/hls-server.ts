@@ -65,7 +65,7 @@ async function startStreaming(): Promise<void> {
 
   console.log('[hls-server] Starting stream processes...');
   isStreaming = true;
-  current_state = STATE_STARTING;
+  setCurrentState(STATE_STARTING);
 
   // 1. Spawn Streamlink (Outputs raw stream to stdout)
   const streamlink = spawn('streamlink', ['--stdout', targetUrl!, 'best']);
@@ -170,7 +170,7 @@ async function startStreaming(): Promise<void> {
   ffmpeg.on('close', () => {
     if (timeoutCheck) clearTimeout(timeoutCheck);
   });
-  current_state = STATE_STARTED;
+  setCurrentState(STATE_STARTED);
 }
 
 // =============================================================================
@@ -248,6 +248,7 @@ async function endAllConnections(): Promise<void> {
     }
   }
   console.log('[hls-server] HLS directory cleaned up');
+  setCurrentState(STATE_IDLE);
   isEndingConnections = false;
   
 }
@@ -258,6 +259,16 @@ async function restartStreaming(): Promise<void> {
   console.log('[hls-server] Restarting streaming...');
   await endAllConnections();
   startStreaming();
+}
+
+function setCurrentState(newState: StreamState['status']): void {
+  current_state = newState;
+  console.log(`[hls-server] State changed to: ${current_state}`);
+  // Notify main thread of state change
+  parentPort?.postMessage({
+    type: 'state',
+    payload: { status: current_state }
+  });
 }
 
 // =============================================================================
@@ -305,26 +316,13 @@ if (!isMainThread && parentPort) {
       // Initialize lastConnectionTime to current time when starting stream
       // This prevents Infinity on first check since no previous connection exists yet
       lastConnectionTime = Date.now();
-      
-      // Send state change to main thread
-      parentPort?.postMessage({
-        type: 'state',
-        payload: { status: STATE_STARTING }
-      });
-      
       startStreaming();
     }
     else if (msg.type === 'stop') {
       console.log('[hls-server] Stopping stream');
       await endAllConnections();
 
-      current_state = STATE_IDLE;
-      
-      // Send state change to main thread
-      parentPort?.postMessage({
-        type: 'state',
-        payload: { status: STATE_IDLE }
-      });
+      setCurrentState(STATE_IDLE);
 
       // Clear the check interval
       if (checkIntervalId) {
@@ -335,12 +333,7 @@ if (!isMainThread && parentPort) {
     else if (msg.type === 'change-channel') {
       console.log('[hls-server] Received change-channel request. Killing current stream and restarting with new URL...');
       
-      current_state = STATE_CHANGING_CHANNEL;
-      // Send state change to main thread indicating channel change in progress
-      parentPort?.postMessage({
-        type: 'state',
-        payload: { status: STATE_CHANGING_CHANNEL }
-      });
+      setCurrentState(STATE_CHANGING_CHANNEL);
       
       // Kill current stream processes
       await endAllConnections();
@@ -358,12 +351,6 @@ if (!isMainThread && parentPort) {
       
       // Initialize lastConnectionTime to current time when starting new stream
       lastConnectionTime = Date.now();
-      
-      // Send state change to main thread
-      parentPort?.postMessage({
-        type: 'state',
-        payload: { status: STATE_STARTING }
-      });
       
       startStreaming();
     }
@@ -394,11 +381,7 @@ if (!isMainThread && parentPort) {
         // Stop the stream
         await endAllConnections();
         
-        // Send state change to main thread
-        parentPort?.postMessage({
-          type: 'state',
-          payload: { status: STATE_IDLE }
-        });
+        setCurrentState(STATE_IDLE);
 
         // Clear the check interval
         if (checkIntervalId) {
@@ -449,6 +432,7 @@ if (!isMainThread && parentPort) {
     });
   }
 }
+
 
 // =============================================================================
 // Export for testing
