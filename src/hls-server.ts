@@ -50,6 +50,7 @@ let streamlinkProcess: ReturnType<typeof spawn> | null = null;
 let ffmpegProcess: ReturnType<typeof spawn> | null = null;
 let isStreaming = false;
 let targetUrl: string | undefined = workerData.url;
+let ffmpegStatus =  false;
 
 // =============================================================================
 // Start Streaming When First User Connects (Background mode)
@@ -87,6 +88,7 @@ async function startStreaming(): Promise<void> {
   // Track the primary streaming container process
   streamlinkProcess = streamlink;
   ffmpegProcess = ffmpeg;
+  ffmpegStatus = false;
 
   // 3. PIPE STREAMLINK TO FFMPEG
   console.log('[hls-server] Piping streamlink.stdout to ffmpeg.stdin');
@@ -99,13 +101,16 @@ async function startStreaming(): Promise<void> {
       console.log('[hls-server] Pipeline ended successfully');
     }
   });
-
+  
   // 4. CAPTURE CLEAN FFMPEG LOGS (Text only)
   ffmpeg.stderr.on('data', (chunk: Buffer) => {
     const lines = chunk.toString().split('\n');
     for (const line of lines) {
       if (line.trim()) {
         console.log('[ffmpeg status]', line.trim());
+        if(line.includes('bitrate=')) {
+          ffmpegStatus = true;
+        }
       }
     }
   });
@@ -148,7 +153,7 @@ async function startStreaming(): Promise<void> {
 
   // Timeout check - if no data after 5 seconds, log warning
   let timeoutCheck = setTimeout(() => {
-    if (stdoutBufferLength === 0) {
+    if (!ffmpegStatus) {
       console.warn('[hls-server] WARNING: No ffmpeg output after 5 seconds. Check stream availability.');
       restartStreaming().catch(err => console.error('[hls-server] Error restarting stream:', err));
     } else {
@@ -326,7 +331,7 @@ if (!isMainThread && parentPort) {
     else if (msg.type === 'change-channel') {
       console.log('[hls-server] Received change-channel request. Killing current stream and restarting with new URL...');
       
-      
+      current_state = STATE_CHANGING_CHANNEL;
       // Send state change to main thread indicating channel change in progress
       parentPort?.postMessage({
         type: 'state',
