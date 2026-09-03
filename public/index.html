@@ -558,7 +558,7 @@
 
       if (typeof Hls !== 'undefined') {
         const hlsConfig = {
-          debug: true,
+          // debug: true,
           enableWorker: true,
           lowLatencyMode: false,
           // backBufferLength: 90 // 90 seconds back buffer
@@ -598,7 +598,8 @@
             infoStatus.textContent = 'Live';
             
             // Start clock sync loop
-             playbackSyncInterval = setInterval(enforceServerSync, 100);
+            if(isSyncEnabled)
+             playbackSyncInterval = setInterval(enforceServerSync, 200);
           }).catch(err => {
             console.error('[frontend] [startPlayback] Play error:', err);
             handleError('Failed to start playback');
@@ -856,8 +857,8 @@
       if (!videoPDT) return;
 
       const trueServerTime = getCurrentServerTime();
-      // Expected video wall-clock time based on target latency (3 seconds behind server)
-      const targetVideoPDT = trueServerTime - 3000;
+      // Expected video wall-clock time based on target latency (5 seconds behind server)
+      const targetVideoPDT = trueServerTime - 5000;
       // Difference between where the player is vs where it should be
       const drift = targetVideoPDT - videoPDT;
 
