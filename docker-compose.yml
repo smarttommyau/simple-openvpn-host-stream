@@ -6,7 +6,7 @@ services:
     cap_add:
       - net_admin
     environment:
-      TZ: 'Asia/Hong_Kong'
+      TZ: ${TZ:-Asia/Hong_Kong}
     networks:
       - vpn-network
     read_only: true
@@ -31,7 +31,7 @@ services:
     environment:
       OPENVPN_HOST: 'openvpn'
       PORT: '${PORT:-8080}'
-      TZ: 'Asia/Hong_Kong'
+      TZ: '${TZ:-Asia/Hong_Kong}'
     network_mode: "service:openvpn"
     volumes:
       - ./public:/app/public  # Mount public as read-only for HLS segments
