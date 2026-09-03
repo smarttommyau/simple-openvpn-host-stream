@@ -598,6 +598,7 @@
             infoStatus.textContent = 'Live';
             
             // Start clock sync loop
+             playbackSyncInterval = setInterval(enforceServerSync, 100);
           }).catch(err => {
             console.error('[frontend] [startPlayback] Play error:', err);
             handleError('Failed to start playback');
