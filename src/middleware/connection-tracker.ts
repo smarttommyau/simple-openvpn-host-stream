@@ -42,11 +42,11 @@ export function hlsConnectionTracker(req: Request, res: Response, next: NextFunc
   }
 
   // Log for debugging
-  console.log(
-    `[hls-tracker] ${req.method} ${req.path} - ` +
-    `Last access: ${new Date(now).toISOString()}, ` +
-    `Distinct connections: ${GLOBAL_CONNECTION_STATE.distinctConnections.size}`
-  );
+  // console.log(
+  //   `[hls-tracker] ${req.method} ${req.path} - ` +
+  //   `Last access: ${new Date(now).toISOString()}, ` +
+  //   `Distinct connections: ${GLOBAL_CONNECTION_STATE.distinctConnections.size}`
+  // );
 
   next();
 }

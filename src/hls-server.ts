@@ -150,6 +150,7 @@ async function startStreaming(): Promise<void> {
   let timeoutCheck = setTimeout(() => {
     if (stdoutBufferLength === 0) {
       console.warn('[hls-server] WARNING: No ffmpeg output after 5 seconds. Check stream availability.');
+      restartStreaming().catch(err => console.error('[hls-server] Error restarting stream:', err));
     } else {
       clearTimeout(timeoutCheck);
     }
@@ -240,6 +241,14 @@ async function endAllConnections(): Promise<void> {
   console.log('[hls-server] HLS directory cleaned up');
   isEndingConnections = false;
   
+}
+
+
+// simple restart function for error recovery
+async function restartStreaming(): Promise<void> {
+  console.log('[hls-server] Restarting streaming...');
+  await endAllConnections();
+  startStreaming();
 }
 
 // =============================================================================
