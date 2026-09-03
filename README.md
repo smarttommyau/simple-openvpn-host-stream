@@ -37,7 +37,8 @@ Host region-locked streams using an OpenVPN configuration and stream them to a s
 
 2. **Prepare OpenVPN Configuration**
 
-   Place your OpenVPN configuration file(.ovpn) in the `openvpn-config/` directory:
+   Place your OpenVPN configuration file(.ovpn) in the `openvpn-config/` directory
+   **Remember**: to obtain a .ovpn file, you may self-host your own OpenVPN server or use a VPN provider that allows you to download configuration files.
 
 3. **Build and Run**
 
@@ -68,7 +69,9 @@ Host region-locked streams using an OpenVPN configuration and stream them to a s
 | `EPG_BASE_STREAM_URL` | Base stream URL prefix for channels with non-full URLs in EPG | - | No (if ENABLE_EPG=true) |
 | `TIMEOUT_SECONDS` | Stream timeout in seconds before automatic restart | 30 | No |
 
+#### Examples
 
+- '.env.example.abematv' is an example configuration for AbemaTV streams. You can copy it to `.env` and modify the `STREAM_URL` and other variables as needed.
 
 ## Channel Switcher & EPG
 
