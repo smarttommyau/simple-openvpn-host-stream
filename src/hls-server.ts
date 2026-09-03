@@ -51,6 +51,8 @@ let ffmpegProcess: ReturnType<typeof spawn> | null = null;
 let isStreaming = false;
 let targetUrl: string | undefined = workerData.url;
 let ffmpegStatus =  false;
+let isEndingConnections = false;
+
 
 // =============================================================================
 // Start Streaming When First User Connects (Background mode)
@@ -97,6 +99,9 @@ async function startStreaming(): Promise<void> {
   pipeline(streamlink.stdout, ffmpeg.stdin, (err) => {
     if (err) {
       console.error('[hls-server] Pipeline error:', err);
+      if(!isEndingConnections) {
+        restartStreaming().catch(err => console.error('[hls-server] Error restarting stream after pipeline error:', err));
+      }
     } else {
       console.log('[hls-server] Pipeline ended successfully');
     }
@@ -171,7 +176,6 @@ async function startStreaming(): Promise<void> {
 // =============================================================================
 // End All Connections and Stop Streaming
 // =============================================================================
-let isEndingConnections = false;
 
 async function endAllConnections(): Promise<void> {
   if(isEndingConnections) {
