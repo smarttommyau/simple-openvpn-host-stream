@@ -407,6 +407,17 @@
     // Sound toggle state (default: muted for autoplay policy)
     let isSoundEnabled = false;
 
+    // Recovery attempts counter (reset on new stream)
+    let recoveryAttempts = 0;
+    const maxRecoveryAttempts = 3;
+
+    // Clock synchronization variables
+    let serverClockOffset = 0;
+    let currentFragPDT = null;
+    let currentFragStartVideoTime = 0;
+    let clocksyncInterval;
+    let playbackSyncInterval;
+
     // Update status indicator
     function updateStatus(status, message) {
       statusDot.className = 'status-dot';
@@ -521,19 +532,27 @@
     function startPlayback() {
       console.log('[frontend] [startPlayback] Creating hls.js player...');
       
+      // Reset recovery attempts counter for new stream
+      recoveryAttempts = 0;
+
       if (typeof Hls !== 'undefined') {
         const hlsConfig = {
           debug: true,
           enableWorker: true,
-          lowLatencyMode: true,
-          backBufferLength: 90 // 90 seconds back buffer
+          lowLatencyMode: false,
+          // backBufferLength: 90 // 90 seconds back buffer
+          // liveSyncDurationCount: 3,
+          // liveMaxLatencyDuration: 10,
+          // maxLiveSyncPlaybackRate: 1.05,
         };
 
         // Apply sync settings only if toggle is enabled (default: OFF)
         if (isSyncEnabled) {
-          hlsConfig.liveSyncDurationCount = 2; // Stay close to live edge (about 5-10 seconds)
-          hlsConfig.maxLiveSyncPlaybackRate = 1.5; // Speed up if lagging behind
+          // hlsConfig.liveSyncDurationCount = 2; // Stay close to live edge (about 5-10 seconds)
+          // hlsConfig.maxLiveSyncPlaybackRate = 1.5; // Speed up if lagging behind
           console.log('[frontend] [startPlayback] Sync mode enabled');
+          clocksyncInterval = setInterval(syncClockWithServer, 60000);
+
         } else {
           console.log('[frontend] [startPlayback] Sync mode disabled (live playback without sync)');
         }
@@ -556,11 +575,17 @@
             loadingOverlay.style.display = 'none';
             updateStatus('streaming', 'Streaming ✓');
             infoStatus.textContent = 'Live';
+            
+            // Start clock sync loop
           }).catch(err => {
             console.error('[frontend] [startPlayback] Play error:', err);
             handleError('Failed to start playback');
           });
         });
+
+        // Track recovery attempts to avoid infinite loops
+        let recoveryAttempts = 0;
+        const maxRecoveryAttempts = 3;
 
         hls.on(Hls.Events.ERROR, (event, data) => {
           console.error('[frontend] [startPlayback] HLS error:', data.type, data.details);
@@ -571,17 +596,88 @@
               case Hls.ErrorTypes.NETWORK_ERROR:
                 console.log('[frontend] [startPlayback] Network error. Trying to recover...');
                 hls.startLoad();
+                
+                // Check if recovery succeeded by waiting for a loading state change
+                setTimeout(() => {
+                  try {
+                    const currentState = videoElement.readyState;
+                    if (currentState === videoElement.HAVE_ENOUGH_DATA ||
+                        currentState === videoElement.HAVE_CURRENT_DATA) {
+                      console.log('[frontend] [startPlayback] Network recovery succeeded');
+                      loadingOverlay.style.display = 'none';
+                      updateStatus('streaming', 'Streaming ✓');
+                      infoStatus.textContent = 'Live';
+                    } else if (recoveryAttempts < maxRecoveryAttempts) {
+                      recoveryAttempts++;
+                      console.log(`[frontend] [startPlayback] Recovery attempt ${recoveryAttempts}/${maxRecoveryAttempts}...`);
+                      setTimeout(() => hls.startLoad(), 1000);
+                    } else {
+                      handleError('Network error: Stream unavailable');
+                    }
+                  } catch (e) {
+                    console.error('[frontend] [startPlayback] Recovery check failed:', e);
+                  }
+                }, 2000);
                 break;
+              
               case Hls.ErrorTypes.MEDIA_ERROR:
                 console.log('[frontend] [startPlayback] Media error. Trying to recover...');
                 hls.recoverMediaError();
+                
+                // Check if recovery succeeded by waiting for a loading state change
+                setTimeout(() => {
+                  try {
+                    const currentState = videoElement.readyState;
+                    if (currentState === videoElement.HAVE_ENOUGH_DATA ||
+                        currentState === videoElement.HAVE_CURRENT_DATA) {
+                      console.log('[frontend] [startPlayback] Media recovery succeeded');
+                      loadingOverlay.style.display = 'none';
+                      updateStatus('streaming', 'Streaming ✓');
+                      infoStatus.textContent = 'Live';
+                    } else if (recoveryAttempts < maxRecoveryAttempts) {
+                      recoveryAttempts++;
+                      console.log(`[frontend] [startPlayback] Recovery attempt ${recoveryAttempts}/${maxRecoveryAttempts}...`);
+                      setTimeout(() => hls.recoverMediaError(), 1000);
+                    } else {
+                      handleError('Media error: Stream unavailable');
+                    }
+                  } catch (e) {
+                    console.error('[frontend] [startPlayback] Recovery check failed:', e);
+                  }
+                }, 2000);
                 break;
+              
               default:
+                // Non-fatal errors or other fatal errors - show error message
                 handleError('HLS playback failed: ' + data.details);
                 break;
             }
           } else {
-            handleError('HLS error: ' + data.details);
+            // Non-fatal errors - log but don't show popup immediately
+            console.log('[frontend] [startPlayback] Non-fatal HLS error:', data.type, data.details);
+            
+            // For non-fatal errors, we still want to allow recovery attempts
+            if (recoveryAttempts < maxRecoveryAttempts) {
+              recoveryAttempts++;
+              setTimeout(() => {
+                try {
+                  const currentState = videoElement.readyState;
+                  if (currentState === videoElement.HAVE_ENOUGH_DATA ||
+                      currentState === videoElement.HAVE_CURRENT_DATA) {
+                    console.log('[frontend] [startPlayback] Non-fatal error recovered');
+                    loadingOverlay.style.display = 'none';
+                    updateStatus('streaming', 'Streaming ✓');
+                    infoStatus.textContent = 'Live';
+                  } else if (recoveryAttempts < maxRecoveryAttempts) {
+                    setTimeout(() => hls.startLoad(), 1000);
+                  } else {
+                    handleError('HLS error: ' + data.details);
+                  }
+                } catch (e) {
+                  console.error('[frontend] [startPlayback] Recovery check failed:', e);
+                }
+              }, 2000);
+            }
           }
         });
 
@@ -594,6 +690,15 @@
           if (hls.levels.length > 0 && hls.currentLevel !== undefined) {
             const levelDuration = hls.levels[hls.currentLevel].duration;
             console.log('[frontend] [startPlayback] Fragment buffered:', data.id);
+          }
+        });
+
+        // Listen to FRAG_CHANGED event to track PDT
+        hls.on(Hls.Events.FRAG_CHANGED, (event, data) => {
+          if (data.frag && data.frag.programDateTime) {
+            currentFragPDT = data.frag.programDateTime;
+            currentFragStartVideoTime = data.frag.start;
+            console.log('[frontend] [FRAG_CHANGED] PDT:', currentFragPDT, 'Video time:', currentFragStartVideoTime);
           }
         });
 
@@ -617,6 +722,10 @@
       infoStatus.textContent = 'Disconnected';
       connectBtn.disabled = false;
       disconnectBtn.disabled = true;
+      clearInterval(clocksyncInterval);
+      clocksyncInterval = null;
+      clearInterval(playbackSyncInterval);
+      playbackSyncInterval = null;
     }
 
     // Handle errors
@@ -671,6 +780,81 @@
       }
     });
 
+
+    // =============================================================================
+    // Clock Synchronization Functions
+    // =============================================================================
+
+    // Sync clock with server using RTT compensation
+    async function syncClockWithServer() {
+      try {
+        const startTime = Date.now();
+        
+        const response = await fetch('/server-time');
+        const data = await response.json();
+        
+        const endTime = Date.now();
+        // Calculate how long the HTTP request took
+        const rtt = endTime - startTime;
+        
+        // Server time when the response left the server
+        const serverTimeMs = new Date(data.serverTime).getTime();
+        
+        // Estimate current server time by adding half the round trip time
+        const correctedServerTime = serverTimeMs + (rtt / 2);
+        
+        // Calculate how far off the client device clock is from the server
+        serverClockOffset = correctedServerTime - endTime;
+        
+        console.log(`[frontend] [syncClockWithServer] Clock synced. Client device is off by ${serverClockOffset}ms. RTT: ${rtt}ms`);
+      } catch (e) {
+        console.error('[frontend] [syncClockWithServer] Clock sync failed', e);
+      }
+    }
+
+    // Get the current true server time anywhere in your app
+    function getCurrentServerTime() {
+      return Date.now() + serverClockOffset;
+    }
+
+    // Calculate the wall-clock time of the frame currently rendering
+    function getVideoProgramDateTime() {
+      if (!currentFragPDT) return null;
+      
+      const elapsedInFrag = (videoElement.currentTime - currentFragStartVideoTime) * 1000;
+      return currentFragPDT + elapsedInFrag;
+    }
+
+    // Enforce server sync by adjusting playback rate or seeking
+    function enforceServerSync() {
+      const videoPDT = getVideoProgramDateTime();
+      if (!videoPDT) return;
+
+      const trueServerTime = getCurrentServerTime();
+      // Expected video wall-clock time based on target latency (5 seconds behind server)
+      const targetVideoPDT = trueServerTime - 5000;
+      // Difference between where the player is vs where it should be
+      const drift = targetVideoPDT - videoPDT;
+
+      if (Math.abs(drift) > 3000) {
+        // Hard Seek: If drift is massive (>3s), jump instantly to the target
+        const targetVideoTime = videoElement.currentTime + (drift / 1000);
+        videoElement.currentTime = targetVideoTime;
+        videoElement.playbackRate = 1.0;
+        console.log(`[frontend] [enforceServerSync] Hard seek: drift=${drift.toFixed(2)}ms, seeking to ${targetVideoTime.toFixed(3)}`);
+      } else if (drift > 500) {
+        // Catch Up: Player is falling behind, speed up playback slightly (+1%)
+        videoElement.playbackRate = Math.min(1.05, videoElement.playbackRate + 0.01);
+        console.log(`[frontend] [enforceServerSync] Catching up: drift=${drift.toFixed(2)}ms, rate=${videoElement.playbackRate.toFixed(3)}`);
+      } else if (drift < -500) {
+        // Slow Down: Player is too close to live edge, slow down playback slightly (-1%)
+        videoElement.playbackRate = Math.max(0.95, videoElement.playbackRate - 0.01);
+        console.log(`[frontend] [enforceServerSync] Slowing down: drift=${drift.toFixed(2)}ms, rate=${videoElement.playbackRate.toFixed(3)}`);
+      } else {
+        // In Sync: Maintain normal speed
+        videoElement.playbackRate = 1.0;
+      }
+    }
     // Toggle sync mode
     function toggleSync() {
       isSyncEnabled = syncToggle.checked;
@@ -678,9 +862,21 @@
       if (isSyncEnabled) {
         syncToggleLabel.textContent = 'Sync to Live: ON';
         console.log('[frontend] [toggleSync] Sync enabled');
+        
+        // Start clock sync loop when sync is enabled
+        if(hls){
+          clocksyncInterval = setInterval(syncClockWithServer, 60000);
+          playbackSyncInterval = setInterval(enforceServerSync, 100);
+        }
+
       } else {
         syncToggleLabel.textContent = 'Sync to Live: OFF';
         console.log('[frontend] [toggleSync] Sync disabled');
+        clearInterval(clocksyncInterval);
+        clocksyncInterval = null;
+        clearInterval(playbackSyncInterval);
+        playbackSyncInterval = null;
+
       }
     }
 
