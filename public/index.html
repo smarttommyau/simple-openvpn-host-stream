@@ -831,8 +831,8 @@
       if (!videoPDT) return;
 
       const trueServerTime = getCurrentServerTime();
-      // Expected video wall-clock time based on target latency (5 seconds behind server)
-      const targetVideoPDT = trueServerTime - 5000;
+      // Expected video wall-clock time based on target latency (3 seconds behind server)
+      const targetVideoPDT = trueServerTime - 3000;
       // Difference between where the player is vs where it should be
       const drift = targetVideoPDT - videoPDT;
 
@@ -842,17 +842,22 @@
         videoElement.currentTime = targetVideoTime;
         videoElement.playbackRate = 1.0;
         console.log(`[frontend] [enforceServerSync] Hard seek: drift=${drift.toFixed(2)}ms, seeking to ${targetVideoTime.toFixed(3)}`);
-      } else if (drift > 500) {
+      } else if (drift > 300) {
         // Catch Up: Player is falling behind, speed up playback slightly (+1%)
         videoElement.playbackRate = Math.min(1.05, videoElement.playbackRate + 0.01);
         console.log(`[frontend] [enforceServerSync] Catching up: drift=${drift.toFixed(2)}ms, rate=${videoElement.playbackRate.toFixed(3)}`);
-      } else if (drift < -500) {
+      } else if (drift < -300) {
         // Slow Down: Player is too close to live edge, slow down playback slightly (-1%)
         videoElement.playbackRate = Math.max(0.95, videoElement.playbackRate - 0.01);
         console.log(`[frontend] [enforceServerSync] Slowing down: drift=${drift.toFixed(2)}ms, rate=${videoElement.playbackRate.toFixed(3)}`);
       } else {
         // In Sync: Maintain normal speed
-        videoElement.playbackRate = 1.0;
+        if(videoElement.playbackRate !== 1.0) {
+          // Slowly drift back to normal speed if we were previously adjusting
+          videoElement.playbackRate += videoElement.playbackRate > 1.0 ? -0.01 : 0.01;
+          console.log(`[frontend] [enforceServerSync] In sync: drift=${drift.toFixed(2)}ms, resetting rate to ${videoElement.playbackRate.toFixed(3)}`);
+        }
+        // or else it is alreaedy 1.0, do nothing
       }
     }
     // Toggle sync mode
