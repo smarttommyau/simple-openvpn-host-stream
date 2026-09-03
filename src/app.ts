@@ -148,7 +148,7 @@ app.get('/health', (req: Request, res: Response) => {
     hlsWorker.postMessage({ type: 'status' });
   }
   
-  const timeoutSeconds = parseInt(process.env.TIMEOUT_SECONDS || '60', 10);
+  const timeoutSeconds = parseInt(process.env.TIMEOUT_SECONDS || '30', 10);
   const distinctConnections = getActiveDistinctConnectionsCount();
   const lastAccessTime = getLastAccessTime() ? new Date(getLastAccessTime()!).toISOString() : null;
   
