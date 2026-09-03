@@ -10,6 +10,7 @@ Host region-locked streams using an OpenVPN configuration and stream them to a s
 - **EPG Integration**: Built-in Electronic Program Guide for browsing available channels and their schedules
 - **Channel Switcher**: Seamless channel switching with using the EPG interface
 - **Docker-Based Deployment**: Easy deployment using Docker Compose
+- **Sync Playback**: Synchronize playback across multiple devices, watch with your friends in real-time
 
 ## Setup Instructions
 
