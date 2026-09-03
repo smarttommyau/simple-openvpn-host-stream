@@ -339,6 +339,7 @@
         <span id="statusText">Disconnected</span>
       </div>
       <div id="connectionCount" style="color: #888;">Connections: 0</div>
+      <div id="currentLink" style="color: #666; font-size: 0.9rem; margin-left: 15px;">Current Link: Not set</div>
     </div>
 
     <div class="video-container">
@@ -395,6 +396,7 @@
     let disconnectBtn = document.getElementById('disconnectBtn');
     let connectionCountEl = document.getElementById('connectionCount');
     let infoStatus = document.getElementById('infoStatus');
+    let currentLinkEl = document.getElementById('currentLink');
     let syncToggle = document.getElementById('syncToggle');
     let syncToggleLabel = document.getElementById('syncToggleLabel');
 
@@ -417,6 +419,11 @@
     let currentFragStartVideoTime = 0;
     let clocksyncInterval;
     let playbackSyncInterval;
+
+    // Stream info polling variables
+    let streamInfoPollingInterval = null;
+    let lastStreamInfoResponse = null;
+    const STREAM_INFO_POLL_INTERVAL_MS = 500; // Poll every 500ms
 
     // Update status indicator
     function updateStatus(status, message) {
@@ -450,9 +457,16 @@
     }
 
     // Connect to stream using hls.js for HLS playback
-    async function connectToStream() {
+    async function connectToStream(reconnect = false) {
       try {
         console.log('[frontend] [connectToStream] Starting connection...');
+
+        // First, disconnect from any existing stream if connected
+        if (hls) {
+          console.log('[frontend] [connectToStream] Disconnecting from existing stream first...');
+          disconnectFromStream();
+        }
+
         updateStatus('connecting', 'Connecting to stream...');
         connectBtn.disabled = true;
         disconnectBtn.disabled = false;
@@ -460,21 +474,24 @@
         errorMessage.style.display = 'none';
 
         // First, POST to /start-stream to start the stream in background
-        console.log('[frontend] [connectToStream] Starting stream via POST /start-stream...');
-        
-        const startResponse = await fetch('/start-stream', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
+        if(!reconnect) {
+          console.log('[frontend] [connectToStream] Starting stream via POST /start-stream...');
+          
+          const startResponse = await fetch('/start-stream', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+  
+          if (!startResponse.ok) {
+            throw new Error(`Failed to start stream: ${startResponse.status}`);
           }
-        });
+  
+          const startData = await startResponse.json();
+          console.log('[frontend] [connectToStream] Stream starting:', startData.message);
 
-        if (!startResponse.ok) {
-          throw new Error(`Failed to start stream: ${startResponse.status}`);
         }
-
-        const startData = await startResponse.json();
-        console.log('[frontend] [connectToStream] Stream starting:', startData.message);
 
         // Poll /stream-ready endpoint to wait for stream to be ready
         let pollCount = 0;
@@ -493,6 +510,10 @@
             
             if (data.ready) {
               console.log('[frontend] [connectToStream] Stream is ready! Starting playback...');
+              
+              // Start polling /stream-info for stream state updates
+              startStreamInfoPolling();
+              
               startPlayback();
             } else {
               pollCount++;
@@ -726,6 +747,9 @@
       clocksyncInterval = null;
       clearInterval(playbackSyncInterval);
       playbackSyncInterval = null;
+      
+      // Stop stream info polling when disconnecting
+      stopStreamInfoPolling();
     }
 
     // Handle errors
@@ -918,6 +942,167 @@
         videoElement.muted = true;
         console.log('[frontend] [toggleSound] Sound disabled');
       }
+    }
+
+    // =============================================================================
+    // Stream Info Polling Functions
+    // =============================================================================
+
+    // Start polling /stream-info endpoint for stream state updates
+    async function startStreamInfoPolling() {
+      if (streamInfoPollingInterval) {
+        console.log('[frontend] [startStreamInfoPolling] Already polling, stopping first...');
+        stopStreamInfoPolling();
+      }
+
+      console.log('[frontend] [startStreamInfoPolling] Starting stream info polling every', STREAM_INFO_POLL_INTERVAL_MS, 'ms');
+
+      const pollStreamInfo = async () => {
+        try {
+          const response = await fetch('/stream-info');
+          
+          if (!response.ok) {
+            console.error('[frontend] [pollStreamInfo] HTTP error:', response.status);
+            return;
+          }
+
+          const data = await response.json();
+          console.log('[frontend] [pollStreamInfo] Received stream info:', data);
+
+          // Update connection count display
+          if (data.distinctConnections !== undefined) {
+            connectionCountEl.textContent = 'Connections: ' + data.distinctConnections;
+          }
+
+          // Update current link display
+          if (data.currentLink !== undefined) {
+            currentLinkEl.textContent = 'Current Link: ' + data.currentLink;
+          }
+
+          // Check for channel change (only when state changes from last response)
+          if (data.hls_state && lastStreamInfoResponse) {
+            const currentState = data.hls_state;
+            const previousState = lastStreamInfoResponse.hls_state;
+            const previousCurrentLink = lastStreamInfoResponse.currentLink || '';
+
+            if (currentState !== previousState) {
+              console.log('[frontend] [pollStreamInfo] State changed from', previousState, 'to', currentState);
+              
+              // Handle starting state - show "starting" status
+              if (currentState === 'starting' || currentState === 'changing-channel') {
+                console.log('[frontend] [pollStreamInfo] Stream is starting...');
+                
+                // Update status indicator to show starting
+                updateStatus('connecting', 'Starting stream...');
+                infoStatus.textContent = 'Starting';
+                
+                // If currentLink also changed and we're in starting state, this is a channel change
+                if (data.currentLink !== previousCurrentLink) {
+                  console.log('[frontend] [pollStreamInfo] Channel change detected via currentLink change!');
+                  
+                  // Show popup about channel change
+                  showChannelChangePopup();
+                  
+                  // Update status indicator
+                  updateStatus('changing-channel', 'Changing Channel...');
+                  
+                  // Destroy current HLS instance and restart stream
+                  if (hls) {
+                    console.log('[frontend] [pollStreamInfo] Destroying current HLS instance...');
+                    disconnectFromStream();
+                    connectToStream(true); // Reconnect with channel change
+                  }
+                  
+                  // Store the new URL for restart
+                  lastStreamInfoResponse.currentLink = data.currentLink;
+                }
+              } else if (currentState === 'started') {
+                console.log('[frontend] [pollStreamInfo] Stream restarted after channel change');
+                
+                // Hide popup after channel change completes
+                hideChannelChangePopup();
+                hideAllError();
+                
+                // Update status indicator
+                updateStatus('streaming', 'Streaming ✓');
+                infoStatus.textContent = 'Live';
+                
+               
+              } else if (currentState === 'idle') {
+                console.log('[frontend] [pollStreamInfo] Stream stopped (idle state)');
+                
+                // // Update status indicator
+                // updateStatus('disconnected', 'Disconnected');
+                // infoStatus.textContent = 'Disconnected';
+                
+                // // Disconnect from stream
+                // disconnectFromStream();
+              } else if (currentState === 'changing-channel') {
+                console.log('[frontend] [pollStreamInfo] Still changing channel...');
+                // Keep showing popup and status during channel change
+              }
+            }
+          }
+
+          // Update last response for change detection
+          lastStreamInfoResponse = data;
+
+        } catch (error) {
+          console.error('[frontend] [pollStreamInfo] Error:', error);
+        }
+      };
+
+      // Start polling interval
+      streamInfoPollingInterval = setInterval(pollStreamInfo, STREAM_INFO_POLL_INTERVAL_MS);
+    }
+
+    // Stop stream info polling
+    function stopStreamInfoPolling() {
+      if (streamInfoPollingInterval) {
+        clearInterval(streamInfoPollingInterval);
+        streamInfoPollingInterval = null;
+        console.log('[frontend] [stopStreamInfoPolling] Stopped polling');
+      }
+    }
+
+    // Show channel change popup
+    function showChannelChangePopup() {
+      const popup = document.createElement('div');
+      popup.id = 'channelChangePopup';
+      popup.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(78, 205, 196, 0.95);
+        color: #1a1a2e;
+        padding: 20px 30px;
+        border-radius: 12px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        text-align: center;
+        min-width: 280px;
+      `;
+      
+      popup.innerHTML = `
+        <h3 style="margin: 0 0 10px 0; font-size: 1.2rem;">🔄 Channel Changing</h3>
+        <p style="margin: 0; font-size: 0.95rem;">Switching to a new channel...</p>
+      `;
+      
+      document.body.appendChild(popup);
+    }
+
+    // Hide channel change popup
+    function hideChannelChangePopup() {
+      const popup = document.getElementById('channelChangePopup');
+      if (popup) {
+        popup.remove();
+      }
+    }
+
+    function hideAllError() {
+      errorMessage.style.display = 'none';
     }
 
     // Initial status

@@ -113,8 +113,10 @@ async function startStreaming(): Promise<void> {
     for (const line of lines) {
       if (line.trim()) {
         console.log('[ffmpeg status]', line.trim());
-        if(line.includes('bitrate=')) {
+        if(line.includes('bitrate=') && !ffmpegStatus) {
           ffmpegStatus = true;
+          setCurrentState(STATE_STARTED);
+
         }
       }
     }
@@ -133,7 +135,7 @@ async function startStreaming(): Promise<void> {
   ffmpeg.on('error', (err) => console.error('[ffmpeg error]', err.message));
 
   ffmpeg.on('close', async (code) => {
-    if(!isStreaming || isEndingConnections)
+    if(isEndingConnections)
       return;
     console.log(`[hls-server] FFmpeg process exited with code ${code}`);
     if (streamlinkProcess) {
@@ -141,8 +143,9 @@ async function startStreaming(): Promise<void> {
       streamlinkProcess.kill('SIGTERM');
       streamlinkProcess = null;
     }
-    await endAllConnections();
+    await restartStreaming().catch(err => console.error('[hls-server] Error restarting stream after ffmpeg close:', err));
   });
+
 
   // Monitor ffmpeg for output - wait until first segment is written
   let stdoutBufferLength = 0;
@@ -170,7 +173,6 @@ async function startStreaming(): Promise<void> {
   ffmpeg.on('close', () => {
     if (timeoutCheck) clearTimeout(timeoutCheck);
   });
-  setCurrentState(STATE_STARTED);
 }
 
 // =============================================================================
